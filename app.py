@@ -1,51 +1,16 @@
-import uvicorn 
-from fastapi import FastAPI
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import numpy as np
-import pickle
-import pandas as pd
-import string
-import nltk
-from nltk.corpus import stopwords
-from nltk.stem.porter import PorterStemmer
-nltk.download('punkt')
-nltk.download('stopwords')
 
-# Pre-requisites
-tfidf = pickle.load(open('vectorizer.pkl', 'rb'))
-model = pickle.load(open('model.pkl', 'rb'))
-ps = PorterStemmer()
+from controllers.newsdetection.main import NewsDetector
+from controllers.newsclassification.main import NewsClassifier
+from controllers.newssentiment.main import NewsSentiment
+from controllers.newscrawler.main import NewsCrawler
 
-def transform_text(text):
-  text = text.lower()
-  text = nltk.word_tokenize(text)
-
-  y = []
-  for i in text:
-    if i.isalnum():
-      y.append(i)
-  text = y[:]
-  y.clear()
-
-  for i in text:
-    if i not in stopwords.words('english') and i not in string.punctuation:
-      y.append(i)
-  text = y[:]
-  y.clear()
-
-  for i in text:
-    y.append(ps.stem(i))
-
-  return " ".join(y)
-
-# FastAPI app generation
 app = FastAPI()
 
 origins = [
     "*"
 ]
-
 
 app.add_middleware(
     CORSMiddleware,
@@ -55,6 +20,12 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
+# Initialize the classes for usage
+detector = NewsDetector()
+classifier = NewsClassifier()
+sentiment = NewsSentiment()
+crawler = NewsCrawler()
+
 # Base root to check
 @app.get('/')
 def hello_world() -> dict:
@@ -62,23 +33,49 @@ def hello_world() -> dict:
     "message": "Hello World"
   }
 
-# Predict route for text
-@app.post('/predict')
-def predict_news(news: dict) -> dict:
-    transformed_news = transform_text(news["message"])
-    vector_input = tfidf.transform([transformed_news])
-    result = model.predict(vector_input)[0]
+# News Detector route
+@app.post('/detect')
+async def news_detection(news: dict) -> dict:
+  return {
+    "prediction": detector.detect_news(news["query"])
+  }
 
-    if result == 1:
-      prediction = "Real News"
-    else:
-      prediction = "Fake News"
+# News Classifier route
+@app.post('/classify')
+async def news_classification(news: dict) -> dict:
+  return {
+    "prediction": classifier.classify_news(news["query"])
+  }
 
+# News Sentiment route
+@app.post('/sentiment')
+async def news_sentiment(news: dict) -> dict:
+  return {
+    "prediction": sentiment.news_sentiment(news["query"])
+  }
+
+# News Crawler route
+@app.post('/crawl')
+async def crawl_news(news: dict) -> dict:
+  return {
+    "prediction": crawler.crawl_news(news["query"])
+  }
+
+# Consolidated Route
+@app.post("/analyze")
+async def analyze_news(news: dict) -> dict:
+  value = detector.detect_news(news["query"])
+  if value == "Fake News":
     return {
-      "prediction": prediction
+      "detection": value,
+      "classification": None,
+      "sentiment": None,
+      "crawl": None
     }
-
-# Predict route with OCR
-
-if __name__ == '__main__':
-    uvicorn.run(app, host='127.0.0.1', port=8000)
+  else:
+    return {
+      "detection": value,
+      "classification": classifier.classify_news(news["query"]),
+      "sentiment": sentiment.news_sentiment(news["query"]),
+      "crawl": crawler.crawl_news(news["query"])
+    }
